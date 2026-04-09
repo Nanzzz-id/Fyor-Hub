@@ -25,6 +25,42 @@ local HighlightESP = false
 local TracerESP = false
 local TracerThickness = 2
 local TracerColor = Color3.fromRGB(255, 0, 0)
+local HealthESP = false
+local HealthBars = {}
+local PlayerHealth = {}
+
+local function trackPlayerHealth(plr)
+    local function onCharAdded(char)
+        local humanoid = char:WaitForChild("Humanoid", 5)
+        if not humanoid then return end
+        PlayerHealth[plr] = {hp = humanoid.Health, max = humanoid.MaxHealth}
+        humanoid.HealthChanged:Connect(function(newHp)
+            if PlayerHealth[plr] then
+                PlayerHealth[plr].hp = newHp
+                PlayerHealth[plr].max = humanoid.MaxHealth
+            end
+        end)
+        humanoid.Died:Connect(function()
+            if PlayerHealth[plr] then
+                PlayerHealth[plr].hp = 0
+            end
+        end)
+    end
+    if plr.Character then task.spawn(onCharAdded, plr.Character) end
+    plr.CharacterAdded:Connect(onCharAdded)
+end
+
+for _, plr in Players:GetPlayers() do
+    if plr ~= localPlayer then
+        trackPlayerHealth(plr)
+    end
+end
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= localPlayer then
+        trackPlayerHealth(plr)
+    end
+end)
+
 local HitboxEnabled = false
 local HitboxSize = 6
 local HitboxTransparency = 0.7
@@ -32,7 +68,6 @@ local R6_PARTS = {"Head", "HumanoidRootPart", "Torso", "Left Arm", "Right Arm", 
 local R15_PARTS = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg", "LeftLowerArm", "RightLowerArm", "LeftLowerLeg", "RightLowerLeg", "LeftHand", "RightHand", "LeftFoot", "RightFoot"}
 local originalSizes = {}
 
--- Forward declare isEnemy agar bisa dipakai sebelum definisinya
 local isEnemy
 
 local function expandHitbox(char)
@@ -51,7 +86,6 @@ local function expandHitbox(char)
             if not originalSizes[part] then
                 originalSizes[part] = part.Size
             end
-            -- Gunakan CustomPhysicalProperties agar size tidak di-override server
             part.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
             part.LocalTransparencyModifier = HitboxTransparency
             part.CanCollide = false
@@ -74,7 +108,6 @@ local function resetHitbox(char)
     end
 end
 
--- Gunakan Heartbeat agar hitbox diperbarui setiap frame (tidak bisa di-override server)
 RunService.Heartbeat:Connect(function()
     if not HitboxEnabled then return end
     for _, plr in Players:GetPlayers() do
@@ -86,7 +119,6 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Reset hitbox saat disabled
 local prevHitboxEnabled = false
 RunService.Heartbeat:Connect(function()
     if prevHitboxEnabled and not HitboxEnabled then
@@ -176,6 +208,14 @@ local function getTargetPart(char)
     end
     return char:FindFirstChild("Head")
 end
+local function getHealthColor(pct)
+    if pct > 0.5 then
+        return Color3.fromRGB(math.floor((1 - pct) * 2 * 255), 220, 60)
+    else
+        return Color3.fromRGB(220, math.floor(pct * 2 * 220), 60)
+    end
+end
+
 local function updateESP()
     for _, plr in Players:GetPlayers() do
         if plr == localPlayer then continue end
@@ -185,6 +225,11 @@ local function updateESP()
             local hl = char:FindFirstChild("Highlight_Zenith")
             if hl then hl:Destroy() end
             if Tracers[plr] then Tracers[plr].Visible = false end
+            if HealthBars[plr] then
+                HealthBars[plr].bg.Visible = false
+                HealthBars[plr].bar.Visible = false
+                HealthBars[plr].outline.Visible = false
+            end
             continue
         end
         if HighlightESP then
@@ -223,10 +268,70 @@ local function updateESP()
         else
             if Tracers[plr] then Tracers[plr].Visible = false end
         end
+        local rootPart = char:FindFirstChild("HumanoidRootPart")
+        if HealthESP and rootPart and PlayerHealth[plr] then
+            local hpData = PlayerHealth[plr]
+            local pos, onScreen = camera:WorldToViewportPoint(rootPart.Position + Vector3.new(0, 3, 0))
+            if onScreen then
+                local healthPct = math.clamp(hpData.max > 0 and (hpData.hp / hpData.max) or 0, 0, 1)
+                local barH = 40
+                local barW = 4
+                local bx = pos.X - barW - 6
+                local by = pos.Y - barH / 2
+                if not HealthBars[plr] then
+                    local outline = Drawing.new("Line")
+                    outline.Thickness = barW + 2
+                    outline.Color = Color3.fromRGB(0, 0, 0)
+                    outline.Transparency = 1
+                    outline.ZIndex = 5
+                    local bg = Drawing.new("Line")
+                    bg.Thickness = barW
+                    bg.Color = Color3.fromRGB(40, 40, 40)
+                    bg.Transparency = 1
+                    bg.ZIndex = 6
+                    local bar = Drawing.new("Line")
+                    bar.Thickness = barW
+                    bar.Color = getHealthColor(healthPct)
+                    bar.Transparency = 1
+                    bar.ZIndex = 7
+                    HealthBars[plr] = {outline=outline, bg=bg, bar=bar}
+                end
+                local hb = HealthBars[plr]
+                hb.outline.From = Vector2.new(bx, by)
+                hb.outline.To   = Vector2.new(bx, by + barH)
+                hb.outline.Visible = true
+                hb.bg.From = Vector2.new(bx, by)
+                hb.bg.To   = Vector2.new(bx, by + barH)
+                hb.bg.Visible = true
+                hb.bar.From = Vector2.new(bx, by + barH * (1 - healthPct))
+                hb.bar.To   = Vector2.new(bx, by + barH)
+                hb.bar.Color = getHealthColor(healthPct)
+                hb.bar.Visible = true
+            else
+                if HealthBars[plr] then
+                    HealthBars[plr].bg.Visible = false
+                    HealthBars[plr].bar.Visible = false
+                    HealthBars[plr].outline.Visible = false
+                end
+            end
+        else
+            if HealthBars[plr] then
+                HealthBars[plr].bg.Visible = false
+                HealthBars[plr].bar.Visible = false
+                HealthBars[plr].outline.Visible = false
+            end
+        end
     end
 end
 Players.PlayerRemoving:Connect(function(plr)
     if Tracers[plr] then Tracers[plr]:Remove() Tracers[plr] = nil end
+    if HealthBars[plr] then
+        HealthBars[plr].bg:Remove()
+        HealthBars[plr].bar:Remove()
+        HealthBars[plr].outline:Remove()
+        HealthBars[plr] = nil
+    end
+    PlayerHealth[plr] = nil
 end)
 local function getClosestFlick()
     local closest, shortest = nil, FlickFOV
@@ -328,7 +433,7 @@ bannerSub.Font = Enum.Font.GothamMedium
 bannerSub.TextSize = 11
 bannerSub.TextXAlignment = Enum.TextXAlignment.Left
 local wnFrame = Instance.new("Frame", HomeTab.Scroll)
-wnFrame.Size = UDim2.new(0.95, 0, 0, 82)
+wnFrame.Size = UDim2.new(0.95, 0, 0, 96)
 wnFrame.BackgroundColor3 = WindUI.CurrentTheme.Secondary
 wnFrame.BorderSizePixel = 0
 Instance.new("UICorner", wnFrame).CornerRadius = UDim.new(0, 18)
@@ -342,16 +447,16 @@ local wnTitle = Instance.new("TextLabel", wnFrame)
 wnTitle.Size = UDim2.new(1, -30, 0, 20)
 wnTitle.Position = UDim2.new(0, 26, 0, 14)
 wnTitle.BackgroundTransparency = 1
-wnTitle.Text = "WHAT'S NEW  --  v1.0"
+wnTitle.Text = "WHAT'S NEW  --  v1.1"
 wnTitle.Font = Enum.Font.GothamBold
 wnTitle.TextColor3 = WindUI.CurrentTheme.Accent
 wnTitle.TextSize = 10
 wnTitle.TextXAlignment = Enum.TextXAlignment.Left
 local wnList = Instance.new("TextLabel", wnFrame)
-wnList.Size = UDim2.new(1, -30, 0, 38)
+wnList.Size = UDim2.new(1, -30, 0, 52)
 wnList.Position = UDim2.new(0, 26, 0, 36)
 wnList.BackgroundTransparency = 1
-wnList.Text = "- Flick, Aimbot, Hitbox Expander\n- Highlight & Tracer ESP\n- Aim Part selector"
+wnList.Text = "- Flick, Aimbot, Hitbox Expander\n- Highlight & Tracer ESP\n- Aim Part selector\n- Health ESP (color bar)"
 wnList.Font = Enum.Font.GothamMedium
 wnList.TextColor3 = WindUI.CurrentTheme.SubText
 wnList.TextSize = 10
@@ -475,6 +580,19 @@ ESPTab:CreateDropdown("Tracer Color", {"Red", "Green", "Blue", "White", "Yellow"
     local c = {Red=Color3.fromRGB(255,0,0), Green=Color3.fromRGB(0,255,0), Blue=Color3.fromRGB(0,120,255), White=Color3.fromRGB(255,255,255), Yellow=Color3.fromRGB(255,255,0), Purple=Color3.fromRGB(180,0,255)}
     TracerColor = c[v] or Color3.fromRGB(255,0,0)
     for _, line in pairs(Tracers) do if line then line.Color = TracerColor end end
+end)
+ESPTab:CreateDivider("-- Health --")
+ESPTab:CreateToggle("Health ESP", false, function(v)
+    HealthESP = v
+    if not v then
+        for _, hb in pairs(HealthBars) do
+            if hb then
+                hb.bg.Visible = false
+                hb.bar.Visible = false
+                hb.outline.Visible = false
+            end
+        end
+    end
 end)
 
 local function Tween(obj, info, goal)
@@ -1013,6 +1131,7 @@ resetBtn.MouseButton1Click:Connect(function()
     HighlightESP  = false
     TracerESP     = false
     HitboxEnabled = false
+    HealthESP     = false
     FlickFOV      = 80
     FlickStrength = 0.12
     FlickCooldown = 0.13
@@ -1023,7 +1142,7 @@ resetBtn.MouseButton1Click:Connect(function()
 end)
 
 local creditCard = Instance.new("Frame", AboutTab.Scroll)
-creditCard.Size = UDim2.new(0.95, 0, 0, 110)
+creditCard.Size = UDim2.new(0.95, 0, 0, 130)
 creditCard.BackgroundColor3 = WindUI.CurrentTheme.Secondary
 Instance.new("UICorner", creditCard).CornerRadius = UDim.new(0, 18)
 local ccStroke = Instance.new("UIStroke", creditCard)
@@ -1031,8 +1150,8 @@ ccStroke.Color = WindUI.CurrentTheme.Accent
 ccStroke.Thickness = 1
 ccStroke.Transparency = 0.6
 local ccBar = Instance.new("Frame", creditCard)
-ccBar.Size = UDim2.new(0, 3, 0, 60)
-ccBar.Position = UDim2.new(0, 14, 0.5, -30)
+ccBar.Size = UDim2.new(0, 3, 0, 80)
+ccBar.Position = UDim2.new(0, 14, 0.5, -40)
 ccBar.BackgroundColor3 = WindUI.CurrentTheme.Accent
 Instance.new("UICorner", ccBar).CornerRadius = UDim.new(1, 0)
 local ccTitle = Instance.new("TextLabel", creditCard)
@@ -1066,11 +1185,20 @@ local ccDate = Instance.new("TextLabel", creditCard)
 ccDate.Size = UDim2.new(1, -40, 0, 14)
 ccDate.Position = UDim2.new(0, 26, 0, 84)
 ccDate.BackgroundTransparency = 1
-ccDate.Text = "Version  -  v1.0"
+ccDate.Text = "Fyor UI  -  V1.0"
 ccDate.Font = Enum.Font.Gotham
 ccDate.TextColor3 = WindUI.CurrentTheme.SubText
 ccDate.TextSize = 9
 ccDate.TextXAlignment = Enum.TextXAlignment.Left
+local ccDate2 = Instance.new("TextLabel", creditCard)
+ccDate2.Size = UDim2.new(1, -40, 0, 14)
+ccDate2.Position = UDim2.new(0, 26, 0, 100)
+ccDate2.BackgroundTransparency = 1
+ccDate2.Text = "Fyor Hub  -  V1.1"
+ccDate2.Font = Enum.Font.Gotham
+ccDate2.TextColor3 = WindUI.CurrentTheme.SubText
+ccDate2.TextSize = 9
+ccDate2.TextXAlignment = Enum.TextXAlignment.Left
 local socialHeader = Instance.new("TextLabel", AboutTab.Scroll)
 socialHeader.Size = UDim2.new(0.95, 0, 0, 18)
 socialHeader.BackgroundTransparency = 1
