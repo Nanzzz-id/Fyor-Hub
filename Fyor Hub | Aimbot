@@ -13,6 +13,7 @@ local FlickCooldown = 0.13
 local MaxDistance = 350
 local LastFlick = 0
 local TeamCheck = false
+local Whitelist = {}
 local AimbotEnabled = false
 local AimbotFOV = 120
 local AimbotSmooth = 0.25
@@ -25,8 +26,18 @@ local HighlightESP = false
 local TracerESP = false
 local TracerThickness = 2
 local TracerColor = Color3.fromRGB(255, 0, 0)
+local NameESP = false
+local NameLabels = {}
 local HealthESP = false
 local HealthBars = {}
+local FullBright = false
+local NoClip = false
+local WalkSpeedEnabled = false
+local WalkSpeedValue = 16
+local InfiniteJump = false
+local PlayerFOV = 70
+local originalLighting = {}
+local originalWalkSpeed = 16
 local PlayerHealth = {}
 
 local function trackPlayerHealth(plr)
@@ -167,6 +178,7 @@ local function isVisible(targetPart)
     return not result or result.Instance:IsDescendantOf(targetPart.Parent)
 end
 isEnemy = function(plr)
+    if Whitelist[plr.Name] then return false end
     if not TeamCheck then return true end
     local ok, result = pcall(function()
         if plr.Team and localPlayer.Team then
@@ -230,6 +242,7 @@ local function updateESP()
                 HealthBars[plr].bar.Visible = false
                 HealthBars[plr].outline.Visible = false
             end
+            if NameLabels[plr] then NameLabels[plr].Visible = false end
             continue
         end
         if HighlightESP then
@@ -321,6 +334,30 @@ local function updateESP()
                 HealthBars[plr].outline.Visible = false
             end
         end
+        local nameRoot = char:FindFirstChild("HumanoidRootPart") or rootPart
+        if NameESP and nameRoot then
+            local pos, onScreen = camera:WorldToViewportPoint(nameRoot.Position + Vector3.new(0, 3.2, 0))
+            if onScreen then
+                if not NameLabels[plr] then
+                    local lbl = Drawing.new("Text")
+                    lbl.Size = 13
+                    lbl.Font = Drawing.Fonts.GothamSemibold
+                    lbl.Outline = true
+                    lbl.OutlineColor = Color3.fromRGB(0, 0, 0)
+                    lbl.Center = true
+                    lbl.Color = Color3.fromRGB(255, 255, 255)
+                    lbl.ZIndex = 8
+                    NameLabels[plr] = lbl
+                end
+                NameLabels[plr].Text = plr.Name
+                NameLabels[plr].Position = Vector2.new(pos.X, pos.Y - 16)
+                NameLabels[plr].Visible = true
+            else
+                if NameLabels[plr] then NameLabels[plr].Visible = false end
+            end
+        else
+            if NameLabels[plr] then NameLabels[plr].Visible = false end
+        end
     end
 end
 Players.PlayerRemoving:Connect(function(plr)
@@ -331,6 +368,7 @@ Players.PlayerRemoving:Connect(function(plr)
         HealthBars[plr].outline:Remove()
         HealthBars[plr] = nil
     end
+    if NameLabels[plr] then NameLabels[plr]:Remove() NameLabels[plr] = nil end
     PlayerHealth[plr] = nil
 end)
 local function getClosestFlick()
@@ -397,7 +435,52 @@ RunService.RenderStepped:Connect(function()
     local cy = camera.ViewportSize.Y / 2
     SetFOVCircle(cx, cy, radius, show)
     updateESP()
+    camera.FieldOfView = PlayerFOV
 end)
+
+local Lighting = game:GetService("Lighting")
+RunService.Heartbeat:Connect(function()
+    local char = localPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+    if WalkSpeedEnabled and humanoid then
+        humanoid.WalkSpeed = WalkSpeedValue
+    end
+
+    if NoClip and hrp then
+        for _, part in char:GetDescendants() do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+
+    if FullBright then
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+    end
+end)
+
+game:GetService("UserInputService").JumpRequest:Connect(function()
+    if InfiniteJump then
+        local char = localPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+local Lighting = game:GetService("Lighting")
+originalLighting.Ambient = Lighting.Ambient
+originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+originalLighting.Brightness = Lighting.Brightness
+originalLighting.ClockTime = Lighting.ClockTime
+originalLighting.FogEnd = Lighting.FogEnd
 
 local HomeTab = Window:CreateTab("Home", "house")
 local banner = Instance.new("Frame", HomeTab.Scroll)
@@ -433,7 +516,7 @@ bannerSub.Font = Enum.Font.GothamMedium
 bannerSub.TextSize = 11
 bannerSub.TextXAlignment = Enum.TextXAlignment.Left
 local wnFrame = Instance.new("Frame", HomeTab.Scroll)
-wnFrame.Size = UDim2.new(0.95, 0, 0, 96)
+wnFrame.Size = UDim2.new(0.95, 0, 0, 124)
 wnFrame.BackgroundColor3 = WindUI.CurrentTheme.Secondary
 wnFrame.BorderSizePixel = 0
 Instance.new("UICorner", wnFrame).CornerRadius = UDim.new(0, 18)
@@ -447,16 +530,16 @@ local wnTitle = Instance.new("TextLabel", wnFrame)
 wnTitle.Size = UDim2.new(1, -30, 0, 20)
 wnTitle.Position = UDim2.new(0, 26, 0, 14)
 wnTitle.BackgroundTransparency = 1
-wnTitle.Text = "WHAT'S NEW  --  v1.1"
+wnTitle.Text = "WHAT'S NEW  --  v1.2"
 wnTitle.Font = Enum.Font.GothamBold
 wnTitle.TextColor3 = WindUI.CurrentTheme.Accent
 wnTitle.TextSize = 10
 wnTitle.TextXAlignment = Enum.TextXAlignment.Left
 local wnList = Instance.new("TextLabel", wnFrame)
-wnList.Size = UDim2.new(1, -30, 0, 52)
+wnList.Size = UDim2.new(1, -30, 0, 80)
 wnList.Position = UDim2.new(0, 26, 0, 36)
 wnList.BackgroundTransparency = 1
-wnList.Text = "- Flick, Aimbot, Hitbox Expander\n- Highlight & Tracer ESP\n- Aim Part selector\n- Health ESP (color bar)"
+wnList.Text = "- Flick, Aimbot, Hitbox Expander\n- Highlight, Tracer, Health, Name ESP\n- Aim Part selector\n- Fullbright, No Clip, WalkSpeed\n- Infinite Jump, Player FOV"
 wnList.Font = Enum.Font.GothamMedium
 wnList.TextColor3 = WindUI.CurrentTheme.SubText
 wnList.TextSize = 10
@@ -581,6 +664,15 @@ ESPTab:CreateDropdown("Tracer Color", {"Red", "Green", "Blue", "White", "Yellow"
     TracerColor = c[v] or Color3.fromRGB(255,0,0)
     for _, line in pairs(Tracers) do if line then line.Color = TracerColor end end
 end)
+ESPTab:CreateDivider("-- Name --")
+ESPTab:CreateToggle("Name ESP", false, function(v)
+    NameESP = v
+    if not v then
+        for _, lbl in pairs(NameLabels) do
+            if lbl then lbl.Visible = false end
+        end
+    end
+end)
 ESPTab:CreateDivider("-- Health --")
 ESPTab:CreateToggle("Health ESP", false, function(v)
     HealthESP = v
@@ -594,6 +686,51 @@ ESPTab:CreateToggle("Health ESP", false, function(v)
         end
     end
 end)
+
+local PlayerTab = Window:CreateTab("Player", "user")
+PlayerTab:CreateLabel("Player Mods")
+PlayerTab:CreateDivider("-- Camera --")
+PlayerTab:CreateSlider("Player FOV", 30, 120, 70, function(v) PlayerFOV = v end)
+PlayerTab:CreateDivider("-- Movement --")
+PlayerTab:CreateToggle("WalkSpeed", false, function(v)
+    WalkSpeedEnabled = v
+    local char = localPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if not v and humanoid then
+        humanoid.WalkSpeed = 16
+    end
+end)
+PlayerTab:CreateSlider("Speed Value", 8, 150, 16, function(v) WalkSpeedValue = v end)
+PlayerTab:CreateToggle("Infinite Jump", false, function(v)
+    InfiniteJump = v
+end)
+PlayerTab:CreateToggle("No Clip", false, function(v)
+    NoClip = v
+    if not v then
+        local char = localPlayer.Character
+        if char then
+            for _, part in char:GetDescendants() do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end)
+PlayerTab:CreateDivider("-- Visual --")
+PlayerTab:CreateToggle("Fullbright", false, function(v)
+    FullBright = v
+    if not v then
+        local Lighting = game:GetService("Lighting")
+        Lighting.Ambient = originalLighting.Ambient or Color3.fromRGB(127, 127, 127)
+        Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient or Color3.fromRGB(127, 127, 127)
+        Lighting.Brightness = originalLighting.Brightness or 1
+        Lighting.ClockTime = originalLighting.ClockTime or 14
+        Lighting.FogEnd = originalLighting.FogEnd or 100000
+    end
+end)
+
+local WhitelistTab = Window:CreateTab("Whitelist", "shield")
 
 local function Tween(obj, info, goal)
     local TweenService = game:GetService("TweenService")
@@ -672,6 +809,288 @@ end
 
 local currentKey = Enum.KeyCode.RightShift
 local bindingActive = false
+
+local selectedPlayerName = nil
+local whitelistCards = {}
+
+local function getPlayerNames()
+    local names = {}
+    for _, plr in Players:GetPlayers() do
+        if plr ~= localPlayer then
+            table.insert(names, plr.Name)
+        end
+    end
+    if #names == 0 then names = {"(no players)"} end
+    return names
+end
+
+local function refreshWhitelistDisplay()
+    for _, c in ipairs(whitelistCards) do
+        if c and c.Parent then c:Destroy() end
+    end
+    whitelistCards = {}
+
+    local count = 0
+    for name, _ in pairs(Whitelist) do
+        count = count + 1
+        local card = Instance.new("Frame", WhitelistTab.Scroll)
+        card.Size = UDim2.new(0.95, 0, 0, 44)
+        card.BackgroundColor3 = WindUI.CurrentTheme.Secondary
+        card.BackgroundTransparency = 0.1
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 14)
+        local cStroke = Instance.new("UIStroke", card)
+        cStroke.Color = WindUI.CurrentTheme.Accent
+        cStroke.Thickness = 1
+        cStroke.Transparency = 0.6
+        local cBar = Instance.new("Frame", card)
+        cBar.Size = UDim2.new(0, 3, 0, 24)
+        cBar.Position = UDim2.new(0, 10, 0.5, -12)
+        cBar.BackgroundColor3 = WindUI.CurrentTheme.Accent
+        Instance.new("UICorner", cBar).CornerRadius = UDim.new(1, 0)
+        local nameLbl = Instance.new("TextLabel", card)
+        nameLbl.Size = UDim2.new(1, -110, 1, 0)
+        nameLbl.Position = UDim2.new(0, 22, 0, 0)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = name
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextColor3 = WindUI.CurrentTheme.Text
+        nameLbl.TextSize = 12
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        local removeBtn = Instance.new("TextButton", card)
+        removeBtn.Size = UDim2.new(0, 70, 0, 24)
+        removeBtn.Position = UDim2.new(1, -82, 0.5, -12)
+        removeBtn.BackgroundColor3 = Color3.fromRGB(210, 60, 60)
+        removeBtn.BackgroundTransparency = 0.78
+        removeBtn.Text = "Remove"
+        removeBtn.Font = Enum.Font.GothamBold
+        removeBtn.TextColor3 = Color3.fromRGB(210, 60, 60)
+        removeBtn.TextSize = 9
+        Instance.new("UICorner", removeBtn).CornerRadius = UDim.new(1, 0)
+        local rStroke = Instance.new("UIStroke", removeBtn)
+        rStroke.Color = Color3.fromRGB(210, 60, 60)
+        rStroke.Thickness = 1
+        rStroke.Transparency = 0.5
+        removeBtn.MouseEnter:Connect(function() Tween(removeBtn, {Time=0.15}, {BackgroundTransparency=0.5}) end)
+        removeBtn.MouseLeave:Connect(function() Tween(removeBtn, {Time=0.15}, {BackgroundTransparency=0.78}) end)
+        local capName = name
+        removeBtn.MouseButton1Click:Connect(function()
+            Whitelist[capName] = nil
+            WindUI:Notify("Whitelist", capName .. " removed from whitelist.", 2)
+            refreshWhitelistDisplay()
+        end)
+        table.insert(whitelistCards, card)
+    end
+
+    if count == 0 then
+        local emptyLbl = Instance.new("TextLabel", WhitelistTab.Scroll)
+        emptyLbl.Size = UDim2.new(0.95, 0, 0, 36)
+        emptyLbl.BackgroundTransparency = 1
+        emptyLbl.Text = "Whitelist is empty"
+        emptyLbl.Font = Enum.Font.GothamMedium
+        emptyLbl.TextColor3 = WindUI.CurrentTheme.SubText
+        emptyLbl.TextSize = 11
+        emptyLbl.TextXAlignment = Enum.TextXAlignment.Center
+        table.insert(whitelistCards, emptyLbl)
+    end
+end
+
+local wlHeaderFrame = Instance.new("Frame", WhitelistTab.Scroll)
+wlHeaderFrame.Size = UDim2.new(0.95, 0, 0, 72)
+wlHeaderFrame.BackgroundColor3 = WindUI.CurrentTheme.Accent
+wlHeaderFrame.BackgroundTransparency = 0.88
+Instance.new("UICorner", wlHeaderFrame).CornerRadius = UDim.new(0, 18)
+local wlHStroke = Instance.new("UIStroke", wlHeaderFrame)
+wlHStroke.Color = WindUI.CurrentTheme.Accent
+wlHStroke.Thickness = 1
+wlHStroke.Transparency = 0.5
+local wlHBar = Instance.new("Frame", wlHeaderFrame)
+wlHBar.Size = UDim2.new(0, 3, 0, 42)
+wlHBar.Position = UDim2.new(0, 14, 0.5, -21)
+wlHBar.BackgroundColor3 = WindUI.CurrentTheme.Accent
+Instance.new("UICorner", wlHBar).CornerRadius = UDim.new(1, 0)
+local wlHTitle = Instance.new("TextLabel", wlHeaderFrame)
+wlHTitle.Size = UDim2.new(1, -30, 0, 22)
+wlHTitle.Position = UDim2.new(0, 26, 0, 12)
+wlHTitle.BackgroundTransparency = 1
+wlHTitle.Text = "Aimbot Whitelist"
+wlHTitle.Font = Enum.Font.GothamBold
+wlHTitle.TextColor3 = WindUI.CurrentTheme.Text
+wlHTitle.TextSize = 14
+wlHTitle.TextXAlignment = Enum.TextXAlignment.Left
+local wlHSub = Instance.new("TextLabel", wlHeaderFrame)
+wlHSub.Size = UDim2.new(1, -30, 0, 16)
+wlHSub.Position = UDim2.new(0, 26, 0, 38)
+wlHSub.BackgroundTransparency = 1
+wlHSub.Text = "Players skipped by aimbot & flick"
+wlHSub.Font = Enum.Font.GothamMedium
+wlHSub.TextColor3 = WindUI.CurrentTheme.SubText
+wlHSub.TextSize = 10
+wlHSub.TextXAlignment = Enum.TextXAlignment.Left
+
+local wlAddCard = Instance.new("Frame", WhitelistTab.Scroll)
+wlAddCard.Size = UDim2.new(0.95, 0, 0, 72)
+wlAddCard.BackgroundColor3 = WindUI.CurrentTheme.Secondary
+wlAddCard.BackgroundTransparency = 0.1
+Instance.new("UICorner", wlAddCard).CornerRadius = UDim.new(0, 16)
+local wlAStroke = Instance.new("UIStroke", wlAddCard)
+wlAStroke.Color = WindUI.CurrentTheme.Border
+wlAStroke.Thickness = 1
+local wlABar = Instance.new("Frame", wlAddCard)
+wlABar.Size = UDim2.new(0, 3, 0, 44)
+wlABar.Position = UDim2.new(0, 0, 0.5, -22)
+wlABar.BackgroundColor3 = WindUI.CurrentTheme.Accent
+Instance.new("UICorner", wlABar).CornerRadius = UDim.new(1, 0)
+local wlATitle = Instance.new("TextLabel", wlAddCard)
+wlATitle.Size = UDim2.new(0.5, 0, 0, 16)
+wlATitle.Position = UDim2.new(0, 12, 0, 8)
+wlATitle.BackgroundTransparency = 1
+wlATitle.Text = "Add Player"
+wlATitle.Font = Enum.Font.GothamBold
+wlATitle.TextColor3 = WindUI.CurrentTheme.Text
+wlATitle.TextSize = 12
+wlATitle.TextXAlignment = Enum.TextXAlignment.Left
+local wlASub = Instance.new("TextLabel", wlAddCard)
+wlASub.Size = UDim2.new(0.5, 0, 0, 14)
+wlASub.Position = UDim2.new(0, 12, 0, 26)
+wlASub.BackgroundTransparency = 1
+wlASub.Text = "Select from server"
+wlASub.Font = Enum.Font.Gotham
+wlASub.TextColor3 = WindUI.CurrentTheme.SubText
+wlASub.TextSize = 9
+wlASub.TextXAlignment = Enum.TextXAlignment.Left
+
+local wlDropdownBtn = Instance.new("TextButton", wlAddCard)
+wlDropdownBtn.Size = UDim2.new(0, 120, 0, 26)
+wlDropdownBtn.Position = UDim2.new(1, -136, 0, 8)
+wlDropdownBtn.BackgroundColor3 = WindUI.CurrentTheme.Tertiary
+wlDropdownBtn.Text = "Select player"
+wlDropdownBtn.Font = Enum.Font.GothamMedium
+wlDropdownBtn.TextColor3 = WindUI.CurrentTheme.SubText
+wlDropdownBtn.TextSize = 10
+wlDropdownBtn.TextTruncate = Enum.TextTruncate.AtEnd
+Instance.new("UICorner", wlDropdownBtn).CornerRadius = UDim.new(0, 8)
+local wlDBStroke = Instance.new("UIStroke", wlDropdownBtn)
+wlDBStroke.Color = WindUI.CurrentTheme.Border
+wlDBStroke.Thickness = 1
+
+local wlAddBtn = Instance.new("TextButton", wlAddCard)
+wlAddBtn.Size = UDim2.new(0, 120, 0, 26)
+wlAddBtn.Position = UDim2.new(1, -136, 0, 40)
+wlAddBtn.BackgroundColor3 = WindUI.CurrentTheme.Accent
+wlAddBtn.BackgroundTransparency = 0.78
+wlAddBtn.Text = "Add to Whitelist"
+wlAddBtn.Font = Enum.Font.GothamBold
+wlAddBtn.TextColor3 = WindUI.CurrentTheme.Accent
+wlAddBtn.TextSize = 10
+Instance.new("UICorner", wlAddBtn).CornerRadius = UDim.new(1, 0)
+local wlABStroke = Instance.new("UIStroke", wlAddBtn)
+wlABStroke.Color = WindUI.CurrentTheme.Accent
+wlABStroke.Thickness = 1
+wlABStroke.Transparency = 0.5
+wlAddBtn.MouseEnter:Connect(function() Tween(wlAddBtn, {Time=0.15}, {BackgroundTransparency=0.5}) end)
+wlAddBtn.MouseLeave:Connect(function() Tween(wlAddBtn, {Time=0.15}, {BackgroundTransparency=0.78}) end)
+
+local wlDropMenu = Instance.new("Frame", wlAddCard)
+wlDropMenu.Size = UDim2.new(0, 120, 0, 0)
+wlDropMenu.Position = UDim2.new(1, -136, 0, 36)
+wlDropMenu.BackgroundColor3 = WindUI.CurrentTheme.Secondary
+wlDropMenu.ClipsDescendants = true
+wlDropMenu.ZIndex = 20
+Instance.new("UICorner", wlDropMenu).CornerRadius = UDim.new(0, 8)
+local wlDMStroke = Instance.new("UIStroke", wlDropMenu)
+wlDMStroke.Color = WindUI.CurrentTheme.Border
+wlDMStroke.Thickness = 1
+wlDMStroke.ZIndex = 21
+local wlDMLayout = Instance.new("UIListLayout", wlDropMenu)
+wlDMLayout.SortOrder = Enum.SortOrder.LayoutOrder
+local wlMenuOpen = false
+
+local function buildDropMenu()
+    for _, ch in ipairs(wlDropMenu:GetChildren()) do
+        if ch:IsA("TextButton") then ch:Destroy() end
+    end
+    local names = getPlayerNames()
+    for i, name in ipairs(names) do
+        local opt = Instance.new("TextButton", wlDropMenu)
+        opt.Size = UDim2.new(1, 0, 0, 26)
+        opt.BackgroundColor3 = WindUI.CurrentTheme.Secondary
+        opt.BackgroundTransparency = 1
+        opt.Text = name
+        opt.Font = Enum.Font.GothamMedium
+        opt.TextColor3 = WindUI.CurrentTheme.Text
+        opt.TextSize = 10
+        opt.ZIndex = 22
+        opt.LayoutOrder = i
+        opt.MouseEnter:Connect(function() Tween(opt, {Time=0.1}, {BackgroundTransparency=0.7}) end)
+        opt.MouseLeave:Connect(function() Tween(opt, {Time=0.1}, {BackgroundTransparency=1}) end)
+        opt.MouseButton1Click:Connect(function()
+            if name ~= "(no players)" then
+                selectedPlayerName = name
+                wlDropdownBtn.Text = name
+                wlDropdownBtn.TextColor3 = WindUI.CurrentTheme.Text
+            end
+            Tween(wlDropMenu, {Time=0.15}, {Size=UDim2.new(0, 120, 0, 0)})
+            wlMenuOpen = false
+        end)
+    end
+    local totalH = #names * 26
+    return totalH
+end
+
+wlDropdownBtn.MouseButton1Click:Connect(function()
+    if wlMenuOpen then
+        Tween(wlDropMenu, {Time=0.15}, {Size=UDim2.new(0, 120, 0, 0)})
+        wlMenuOpen = false
+    else
+        local h = buildDropMenu()
+        Tween(wlDropMenu, {Time=0.2}, {Size=UDim2.new(0, 120, 0, math.min(h, 130))})
+        wlMenuOpen = true
+    end
+end)
+
+wlAddBtn.MouseButton1Click:Connect(function()
+    if not selectedPlayerName then
+        WindUI:Notify("Whitelist", "Select a player first.", 2)
+        return
+    end
+    if Whitelist[selectedPlayerName] then
+        WindUI:Notify("Whitelist", selectedPlayerName .. " is already whitelisted.", 2)
+        return
+    end
+    Whitelist[selectedPlayerName] = true
+    WindUI:Notify("Whitelist", selectedPlayerName .. " added to whitelist.", 2)
+    selectedPlayerName = nil
+    wlDropdownBtn.Text = "Select player"
+    wlDropdownBtn.TextColor3 = WindUI.CurrentTheme.SubText
+    refreshWhitelistDisplay()
+end)
+
+local wlListHeader = Instance.new("TextLabel", WhitelistTab.Scroll)
+wlListHeader.Size = UDim2.new(0.95, 0, 0, 18)
+wlListHeader.BackgroundTransparency = 1
+wlListHeader.Text = "WHITELISTED PLAYERS"
+wlListHeader.Font = Enum.Font.GothamBold
+wlListHeader.TextColor3 = WindUI.CurrentTheme.Accent
+wlListHeader.TextSize = 9
+wlListHeader.TextXAlignment = Enum.TextXAlignment.Left
+
+refreshWhitelistDisplay()
+
+Players.PlayerAdded:Connect(function()
+    if wlMenuOpen then buildDropMenu() end
+end)
+Players.PlayerRemoving:Connect(function(plr)
+    if Whitelist[plr.Name] then
+        Whitelist[plr.Name] = nil
+        refreshWhitelistDisplay()
+    end
+    if selectedPlayerName == plr.Name then
+        selectedPlayerName = nil
+        wlDropdownBtn.Text = "Select player"
+        wlDropdownBtn.TextColor3 = WindUI.CurrentTheme.SubText
+    end
+end)
+
 MakeSectionHeader(SettingsTab.Scroll, "keyboard", "Toggle Keybind", "Key used to show / hide the UI")
 local keybindFrame = MakeSettingsCard(SettingsTab.Scroll, 52)
 local kbBar = Instance.new("Frame", keybindFrame)
@@ -1132,12 +1551,28 @@ resetBtn.MouseButton1Click:Connect(function()
     TracerESP     = false
     HitboxEnabled = false
     HealthESP     = false
+    NameESP       = false
+    FullBright    = false
+    NoClip        = false
+    WalkSpeedEnabled = false
+    WalkSpeedValue = 16
+    InfiniteJump  = false
+    PlayerFOV     = 70
     FlickFOV      = 80
     FlickStrength = 0.12
     FlickCooldown = 0.13
     AimbotFOV     = 120
     AimbotSmooth  = 0.25
     HitboxSize    = 6
+    local char = localPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid.WalkSpeed = 16 end
+    local Lt = game:GetService("Lighting")
+    Lt.Ambient = originalLighting.Ambient
+    Lt.OutdoorAmbient = originalLighting.OutdoorAmbient
+    Lt.Brightness = originalLighting.Brightness
+    Lt.ClockTime = originalLighting.ClockTime
+    Lt.FogEnd = originalLighting.FogEnd
     WindUI:Notify("Settings", "All settings have been reset to default.", 3)
 end)
 
@@ -1194,7 +1629,7 @@ local ccDate2 = Instance.new("TextLabel", creditCard)
 ccDate2.Size = UDim2.new(1, -40, 0, 14)
 ccDate2.Position = UDim2.new(0, 26, 0, 100)
 ccDate2.BackgroundTransparency = 1
-ccDate2.Text = "Fyor Hub  -  V1.1"
+ccDate2.Text = "Fyor Hub  -  V1.2"
 ccDate2.Font = Enum.Font.Gotham
 ccDate2.TextColor3 = WindUI.CurrentTheme.SubText
 ccDate2.TextSize = 9
